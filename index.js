@@ -54,6 +54,8 @@ const injectLottie = `
  * @param {string} [opts.inject.style] - Optionally injected into a <style> tag within the document <head>
  * @param {string} [opts.inject.body] - Optionally injected into the document <body>
  * @param {object} [opts.browser] - Optional puppeteer instance to reuse
+ * @param {number} [opts.offset] - Optional offset in seconds
+ * @param {number} [opts.length] - Optional length in seconds
  *
  * @return {Promise}
  */
@@ -84,6 +86,11 @@ module.exports = async (opts) => {
   let {
     width = undefined,
     height = undefined
+  } = opts
+
+  let {
+    offset = 0,
+    length = 0
   } = opts
 
   ow(output, ow.string.nonEmpty, 'output')
@@ -209,6 +216,7 @@ ${inject.body || ''}
   let animation = null
   let duration
   let numFrames
+  let frameRate
 
   function onReady () {
     animation = lottie.loadAnimation({
@@ -222,6 +230,7 @@ ${inject.body || ''}
 
     duration = animation.getDuration()
     numFrames = animation.getDuration(true)
+    frameRate = animation.frameRate
 
     var div = document.createElement('div')
     div.className = 'ready'
@@ -234,6 +243,7 @@ ${inject.body || ''}
 </body>
 </html>
 `
+
 
   // useful for testing purposes
   // fs.writeFileSync('test.html', html)
@@ -259,6 +269,15 @@ ${inject.body || ''}
   await page.waitForSelector('.ready')
   const duration = await page.evaluate(() => duration)
   const numFrames = await page.evaluate(() => numFrames)
+  const frameRate = await page.evaluate(() => frameRate)
+
+  // if not set or set to '0' render full length
+  if (length === 0) length = duration - offset;
+
+  // calculate first and last frame
+  let startFrame = frameRate * offset;
+  let stopFrame = frameRate * offset + frameRate * length;
+  if (stopFrame >= numFrames) stopFrame = numFrames - 1;
 
   const pageFrame = page.mainFrame()
   const rootHandle = await pageFrame.$('#root')
@@ -273,7 +292,7 @@ ${inject.body || ''}
     spinnerB.succeed()
   }
 
-  const numOutputFrames = isMultiFrame ? numFrames : 1
+  const numOutputFrames = isMultiFrame ? (stopFrame - startFrame) : 1
   const framesLabel = pluralize('frame', numOutputFrames)
   const spinnerR = !quiet && ora(`Rendering ${numOutputFrames} ${framesLabel}`).start()
 
@@ -356,7 +375,7 @@ ${inject.body || ''}
     })
   }
 
-  for (let frame = 0; frame < numFrames; ++frame) {
+  for (let frame = startFrame; frame < stopFrame; ++frame) {
     const frameOutputPath = isMultiFrame
       ? sprintf(tempOutput, frame + 1)
       : tempOutput
